@@ -6,12 +6,12 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/common/log"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -81,7 +81,7 @@ func (ss *Server) CheckHostKey(hostname string, remote net.Addr, key ssh.PublicK
 
 // Close the server.
 func (ss *Server) Close() error {
-	log.Debug("closing test server")
+	log.Printf("closing test server")
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
@@ -89,7 +89,7 @@ func (ss *Server) Close() error {
 	close(ss.closeC)
 	err := ss.listener.Close()
 	ss.wg.Wait()
-	log.Debug("closing test server: ...and done")
+	log.Printf("closing test server: ...and done")
 	return errors.Wrap(err, "failed to close listener")
 }
 
@@ -112,14 +112,14 @@ func (ss *Server) listen() {
 		conn, err := ss.listener.Accept()
 		if err != nil {
 			if !ss.closed {
-				log.Debug("failed to accept from listener: %s", err)
+				log.Printf("failed to accept from listener: %s", err)
 			}
 			continue
 		}
 
 		sConn, chans, reqs, err := ssh.NewServerConn(conn, ss.config)
 		if err != nil {
-			log.Debug("failed to create connection: %s", err)
+			log.Printf("failed to create connection: %s", err)
 			continue
 		}
 
@@ -127,7 +127,7 @@ func (ss *Server) listen() {
 		go ss.handleServerConn(sConn, chans)
 	}
 
-	log.Debug("closed listener loop")
+	log.Printf("closed listener loop")
 }
 
 func (ss *Server) handleServerConn(sConn *ssh.ServerConn, chans <-chan ssh.NewChannel) {
@@ -135,17 +135,17 @@ func (ss *Server) handleServerConn(sConn *ssh.ServerConn, chans <-chan ssh.NewCh
 	defer ss.wg.Done()
 
 	for {
-		log.Debug("waiting for next channel")
+		log.Printf("waiting for next channel")
 		select {
 		case nChan := <-chans:
-			log.Debug("received channel")
+			log.Printf("received channel")
 			if err := ss.handleChannel(nChan); err != nil {
-				log.Debug("ERR: %s", err)
+				log.Printf("ERR: %s", err)
 			}
 		case <-ss.closeC:
-			log.Debug("closed channel loop")
+			log.Printf("closed channel loop")
 			if err := sConn.Close(); err != nil {
-				log.Debug("failed to close server conn: %s", err)
+				log.Printf("failed to close server conn: %s", err)
 			}
 			return
 		}
@@ -174,28 +174,28 @@ func (ss *Server) handleChannel(newChan ssh.NewChannel) error {
 				parts := strings.Fields(string(req.Payload[4:]))
 				cmd := parts[0]
 				args := parts[1:]
-				log.Debug("received command %q %d", cmd, len(req.Payload))
+				log.Printf("received command %q %d", cmd, len(req.Payload))
 				if h, found := ss.handlers[cmd]; found {
-					log.Debug("found command handler")
+					log.Printf("found command handler")
 					sendReplyIfWanted(req, true, nil)
 					rVal = h(cmd, args, ch, ch, ch.Stderr())
 				} else {
-					log.Debug("no command handler found")
+					log.Printf("no command handler found")
 					sendReplyIfWanted(req, false, []byte("command not found"))
 				}
 
 				if _, err := ch.SendRequest("exit-status", false, []byte{0, 0, 0, byte(rVal)}); err != nil {
-					log.Debug("failed to send exit-status request")
+					log.Printf("failed to send exit-status request")
 				}
 				if err := ch.Close(); err != nil {
-					log.Debug("failed to close channel: %s", err)
+					log.Printf("failed to close channel: %s", err)
 				}
 			default:
 				req.Reply(false, []byte(""))
-				log.Debug("unknown request type: %s", req.Type)
+				log.Printf("unknown request type: %s", req.Type)
 			}
 		}
-		log.Debug("closed channel")
+		log.Printf("closed channel")
 	}(ch, reqs)
 	return nil
 }
@@ -203,7 +203,7 @@ func (ss *Server) handleChannel(newChan ssh.NewChannel) error {
 func sendReplyIfWanted(req *ssh.Request, ok bool, payload []byte) {
 	if req.WantReply {
 		if err := req.Reply(ok, payload); err != nil {
-			log.Debug("failed to send reply: %s", err)
+			log.Printf("failed to send reply: %s", err)
 		}
 	}
 }
